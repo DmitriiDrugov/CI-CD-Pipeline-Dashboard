@@ -1,0 +1,24 @@
+{
+  "name": "ci-cd-pipeline-dashboard-functions",
+  "version": "1.0.0",
+  "description": "Azure Functions serverless backend for CI/CD Pipeline Dashboard",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "dev": "npm run build && func start",
+    "deploy": "func azure functionapp publish $AZURE_FUNCTION_APP_NAME --typescript"
+  },
+  "main": "dist/src/functions/*.js",
+  "dependencies": {
+    "@azure/functions": "^4.5.0",
+    "applicationinsights": "^3.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "azure-functions-core-tools": "^4.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

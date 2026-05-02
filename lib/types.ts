@@ -79,3 +79,21 @@ export interface WorkflowsResponse {
 }
 
 export type FilterMode = 'all' | 'passing' | 'failing';
+
+// Aggregated per-repo stats returned by the Azure Function (and the local fallback route).
+export interface RepoWorkflowStat {
+  repo: string;
+  owner: string;
+  name: string;
+  successRate: number;
+  avgDuration: number;
+  mostFailingJob: string | null;
+  totalRuns: number;
+  hasWorkflows: boolean;
+}
+
+export interface WorkflowStatsAggregated {
+  username: string;
+  repos: RepoWorkflowStat[];
+  generatedAt: string;
+}
