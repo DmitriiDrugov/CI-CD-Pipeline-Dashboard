@@ -7,12 +7,21 @@ import { RepoCardSkeleton } from '@/components/RepoCardSkeleton';
 import { HealthOverview } from '@/components/HealthOverview';
 import { FilterBar } from '@/components/FilterBar';
 
-const REFRESH_INTERVAL_MS = 30_000;
-const WORKFLOW_BATCH_SIZE = 5;
+const REFRESH_MS = 30_000;
+const BATCH = 5;
+
+function SearchIcon() {
+  return (
+    <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <circle cx="6.5" cy="6.5" r="4.5" />
+      <path d="m10.5 10.5 3 3" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 export default function HomePage() {
-  const [inputValue, setInputValue] = useState('');
-  const [activeUsername, setActiveUsername] = useState('');
+  const [input, setInput] = useState('');
+  const [activeUser, setActiveUser] = useState('');
   const [repoStats, setRepoStats] = useState<RepoStats[]>([]);
   const [fetchingRepos, setFetchingRepos] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,11 +29,11 @@ export default function HomePage() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const fetchAllData = useCallback(async (username: string) => {
-    if (abortRef.current) abortRef.current.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    const { signal } = controller;
+  const fetchAll = useCallback(async (username: string) => {
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+    const { signal } = ctrl;
 
     setFetchingRepos(true);
     setError(null);
@@ -32,11 +41,10 @@ export default function HomePage() {
     try {
       const res = await fetch(`/api/repos?username=${encodeURIComponent(username)}`, { signal });
       if (!res.ok) {
-        const body = (await res.json()) as { error?: string };
-        throw new Error(body.error ?? `Failed to fetch repos (${res.status})`);
+        const b = (await res.json()) as { error?: string };
+        throw new Error(b.error ?? `Error ${res.status}`);
       }
       const repos = (await res.json()) as GitHubRepo[];
-
       if (signal.aborted) return;
 
       if (repos.length === 0) {
@@ -46,8 +54,7 @@ export default function HomePage() {
         return;
       }
 
-      // Seed cards immediately so the UI shows skeletons per-card
-      const seedStats: RepoStats[] = repos.map((repo) => ({
+      const seed: RepoStats[] = repos.map((repo) => ({
         repo,
         lastRun: null,
         successRate: 0,
@@ -56,23 +63,23 @@ export default function HomePage() {
         hasWorkflows: false,
         workflowsLoading: true,
       }));
-      setRepoStats(seedStats);
+      setRepoStats(seed);
       setFetchingRepos(false);
 
-      // Fetch workflow stats in batches
-      const results = [...seedStats];
-      for (let i = 0; i < repos.length; i += WORKFLOW_BATCH_SIZE) {
+      const results = [...seed];
+
+      for (let i = 0; i < repos.length; i += BATCH) {
         if (signal.aborted) break;
-        const batch = repos.slice(i, i + WORKFLOW_BATCH_SIZE);
+        const batch = repos.slice(i, i + BATCH);
 
         const settled = await Promise.allSettled(
           batch.map(async (repo) => {
-            const wfRes = await fetch(
+            const r = await fetch(
               `/api/workflows?owner=${encodeURIComponent(repo.owner.login)}&repo=${encodeURIComponent(repo.name)}`,
               { signal }
             );
-            if (!wfRes.ok) return null;
-            return { repo, wfData: (await wfRes.json()) as WorkflowsResponse };
+            if (!r.ok) return null;
+            return { repo, wf: (await r.json()) as WorkflowsResponse };
           })
         );
 
@@ -81,14 +88,14 @@ export default function HomePage() {
         settled.forEach((result, j) => {
           const idx = i + j;
           if (result.status === 'fulfilled' && result.value) {
-            const { repo, wfData } = result.value;
+            const { repo, wf } = result.value;
             results[idx] = {
               repo,
-              lastRun: wfData.lastRun,
-              successRate: wfData.successRate,
-              avgDuration: wfData.avgDuration,
-              totalRuns: wfData.totalRuns,
-              hasWorkflows: wfData.hasWorkflows,
+              lastRun: wf.lastRun,
+              successRate: wf.successRate,
+              avgDuration: wf.avgDuration,
+              totalRuns: wf.totalRuns,
+              hasWorkflows: wf.hasWorkflows,
               workflowsLoading: false,
             };
           } else if (results[idx]) {
@@ -102,31 +109,29 @@ export default function HomePage() {
       setLastRefresh(new Date());
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
-      setError((err as Error).message ?? 'An unexpected error occurred.');
+      setError((err as Error).message);
       setFetchingRepos(false);
     }
   }, []);
 
-  // Auto-refresh
   useEffect(() => {
-    if (!activeUsername) return;
-    const id = setInterval(() => fetchAllData(activeUsername), REFRESH_INTERVAL_MS);
+    if (!activeUser) return;
+    const id = setInterval(() => fetchAll(activeUser), REFRESH_MS);
     return () => clearInterval(id);
-  }, [activeUsername, fetchAllData]);
+  }, [activeUser, fetchAll]);
 
-  // Cleanup on unmount
   useEffect(() => () => abortRef.current?.abort(), []);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const user = inputValue.trim();
+    const user = input.trim();
     if (!user) return;
     setFilter('all');
-    setActiveUsername(user);
-    fetchAllData(user);
+    setActiveUser(user);
+    fetchAll(user);
   }
 
-  const filteredRepos = repoStats.filter((s) => {
+  const filtered = repoStats.filter((s) => {
     if (filter === 'passing') return s.lastRun?.conclusion === 'success';
     if (filter === 'failing') return s.lastRun?.conclusion === 'failure';
     return true;
@@ -141,85 +146,91 @@ export default function HomePage() {
   const showContent = repoStats.length > 0 || fetchingRepos;
 
   return (
-    <div>
+    <div className="animate-fade-in">
       {/* Page header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white tracking-tight">Pipeline Dashboard</h1>
-        <p className="text-gray-600 text-sm mt-1">
-          Monitor GitHub Actions across your public repositories
+      <div className="mb-10">
+        <h1 className="text-3xl font-bold tracking-tight text-gradient mb-2">
+          Pipeline Monitor
+        </h1>
+        <p className="text-sm text-white/35">
+          Real-time GitHub Actions health across your repositories
         </p>
       </div>
 
       {/* Search */}
-      <form onSubmit={handleSubmit} className="mb-6">
-        <div className="flex gap-2 max-w-lg">
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            placeholder="GitHub username..."
-            className="flex-1 bg-gray-900 border border-gray-800 rounded-lg px-4 py-2.5 text-white placeholder-gray-700 focus:outline-none focus:border-gray-600 font-mono text-sm transition-colors"
-            disabled={fetchingRepos}
-          />
+      <form onSubmit={handleSubmit} className="mb-8">
+        <div className="flex gap-2 max-w-md">
+          <div className="relative flex-1">
+            <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/25 pointer-events-none">
+              <SearchIcon />
+            </div>
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="GitHub username"
+              className="w-full bg-bg-raised border border-white/6 hover:border-white/10 focus:border-white/15 rounded-xl pl-10 pr-4 py-2.5 text-white placeholder-white/20 focus:outline-none transition-colors font-mono text-sm"
+              disabled={fetchingRepos}
+            />
+          </div>
           <button
             type="submit"
-            disabled={fetchingRepos || !inputValue.trim()}
-            className="px-5 py-2.5 bg-white text-gray-900 rounded-lg font-semibold text-sm hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+            disabled={fetchingRepos || !input.trim()}
+            className="px-5 py-2.5 rounded-xl font-semibold text-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-indigo-500 hover:bg-indigo-400 text-white shadow-glow-indigo flex-shrink-0"
           >
-            {fetchingRepos ? 'Loading…' : 'Load Repos'}
+            {fetchingRepos ? 'Loading…' : 'Load'}
           </button>
         </div>
       </form>
 
       {/* Error */}
       {error && (
-        <div className="bg-red-500/10 border border-red-500/25 rounded-lg px-4 py-3 mb-6 text-red-400 text-sm">
-          <span className="font-medium">Error:</span> {error}
+        <div className="flex items-start gap-3 bg-red-500/8 border border-red-500/15 rounded-xl px-4 py-3 mb-6 text-sm">
+          <span className="text-red-500 mt-0.5 flex-shrink-0">⚠</span>
+          <span className="text-red-400">{error}</span>
         </div>
       )}
 
-      {/* Main content */}
+      {/* Content */}
       {showContent && (
         <>
           {repoStats.length > 0 && <HealthOverview repoStats={repoStats} />}
 
-          <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
+          <div className="flex items-center justify-between gap-4 mb-5 flex-wrap">
             <FilterBar active={filter} onChange={setFilter} counts={counts} />
             {lastRefresh && (
-              <span className="text-gray-700 text-xs font-mono flex-shrink-0">
-                refreshed {lastRefresh.toLocaleTimeString()} · auto-refresh 30s
+              <span className="text-xs text-white/20 font-mono flex-shrink-0">
+                ↻ {lastRefresh.toLocaleTimeString()} · 30s refresh
               </span>
             )}
           </div>
 
-          {/* Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {fetchingRepos && repoStats.length === 0
               ? Array.from({ length: 9 }).map((_, i) => <RepoCardSkeleton key={i} />)
-              : filteredRepos.map((stats) => <RepoCard key={stats.repo.id} stats={stats} />)}
+              : filtered.map((s) => <RepoCard key={s.repo.id} stats={s} />)}
           </div>
 
-          {filteredRepos.length === 0 && !fetchingRepos && repoStats.length > 0 && (
-            <p className="text-gray-600 text-sm text-center py-12">
-              No repos match the &quot;{filter}&quot; filter.
-            </p>
+          {filtered.length === 0 && !fetchingRepos && repoStats.length > 0 && (
+            <div className="py-20 text-center text-white/25 text-sm">
+              No repos match &ldquo;{filter}&rdquo;
+            </div>
           )}
         </>
       )}
 
-      {/* Empty / idle states */}
-      {!showContent && !error && activeUsername && (
-        <div className="text-center py-20 text-gray-600">
-          <p className="text-sm">
-            No public repositories found for{' '}
-            <span className="font-mono text-gray-500">{activeUsername}</span>.
-          </p>
+      {/* Idle states */}
+      {!showContent && !error && activeUser && (
+        <div className="py-24 text-center text-white/25 text-sm">
+          No public repositories found for{' '}
+          <span className="font-mono text-white/40">{activeUser}</span>
         </div>
       )}
 
-      {!showContent && !error && !activeUsername && (
-        <div className="text-center py-24 text-gray-700">
-          <p className="text-sm">Enter a GitHub username above to get started.</p>
+      {!showContent && !error && !activeUser && (
+        <div className="py-32 text-center text-white/20 text-sm space-y-2">
+          <p className="text-4xl mb-4">⌥</p>
+          <p>Enter a GitHub username to start monitoring pipelines</p>
         </div>
       )}
     </div>

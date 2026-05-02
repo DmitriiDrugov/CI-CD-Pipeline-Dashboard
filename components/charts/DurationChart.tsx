@@ -16,70 +16,68 @@ interface DurationChartProps {
   data: JobStat[];
 }
 
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+function formatDuration(s: number): string {
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
 function truncate(str: string, n: number): string {
   return str.length > n ? str.slice(0, n) + '…' : str;
 }
 
+function getBarColor(successRate: number): string {
+  if (successRate > 80) return '#6366f1';
+  if (successRate > 60) return '#eab308';
+  return '#ef4444';
+}
+
 export function DurationChart({ data }: DurationChartProps) {
-  const chartData = data.slice(0, 12).map((d) => ({
-    name: truncate(d.name, 18),
+  const chartData = data.slice(0, 10).map((d) => ({
+    name: truncate(d.name, 16),
     fullName: d.name,
     avgDuration: d.avgDuration,
     successRate: d.successRate,
   }));
 
   return (
-    <ResponsiveContainer width="100%" height={260}>
-      <BarChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 55 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+    <ResponsiveContainer width="100%" height={240}>
+      <BarChart data={chartData} margin={{ top: 4, right: 4, left: -28, bottom: 52 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
         <XAxis
           dataKey="name"
-          tick={{ fill: '#4b5563', fontSize: 10, fontFamily: 'monospace' }}
-          axisLine={{ stroke: '#1f2937' }}
+          tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 10, fontFamily: 'var(--font-geist-mono)' }}
+          axisLine={false}
           tickLine={false}
-          angle={-40}
+          angle={-38}
           textAnchor="end"
           interval={0}
         />
         <YAxis
-          tick={{ fill: '#4b5563', fontSize: 10, fontFamily: 'monospace' }}
+          tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 10, fontFamily: 'var(--font-geist-mono)' }}
           axisLine={false}
           tickLine={false}
           tickFormatter={formatDuration}
         />
         <Tooltip
           contentStyle={{
-            backgroundColor: '#111827',
-            border: '1px solid #374151',
+            backgroundColor: '#10101e',
+            border: '1px solid rgba(255,255,255,0.08)',
             borderRadius: '8px',
-            color: '#f9fafb',
+            color: '#fff',
             fontSize: '12px',
-            fontFamily: 'monospace',
+            fontFamily: 'var(--font-geist-mono)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
           }}
+          cursor={{ fill: 'rgba(255,255,255,0.03)' }}
           formatter={(value: number, _: string, props: { payload?: { fullName?: string } }) => [
             formatDuration(value as number),
             props.payload?.fullName ?? '',
           ]}
           labelFormatter={() => 'Avg Duration'}
         />
-        <Bar dataKey="avgDuration" radius={[3, 3, 0, 0]} maxBarSize={48}>
-          {chartData.map((entry, index) => (
-            <Cell
-              key={`cell-${index}`}
-              fill={
-                entry.successRate > 80
-                  ? '#3b82f6'
-                  : entry.successRate > 60
-                    ? '#eab308'
-                    : '#ef4444'
-              }
-              fillOpacity={0.8}
-            />
+        <Bar dataKey="avgDuration" radius={[3, 3, 0, 0]} maxBarSize={40}>
+          {chartData.map((entry, i) => (
+            <Cell key={i} fill={getBarColor(entry.successRate)} fillOpacity={0.75} />
           ))}
         </Bar>
       </BarChart>

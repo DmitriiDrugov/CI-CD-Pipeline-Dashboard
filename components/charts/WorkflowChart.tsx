@@ -10,6 +10,8 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  Area,
+  AreaChart,
 } from 'recharts';
 
 interface WorkflowChartProps {
@@ -26,55 +28,73 @@ export function WorkflowChart({ data }: WorkflowChartProps) {
   }));
 
   return (
-    <ResponsiveContainer width="100%" height={260}>
-      <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+    <ResponsiveContainer width="100%" height={240}>
+      <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+        <defs>
+          <linearGradient id="colorSuccess" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#22c55e" stopOpacity={0.15} />
+            <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+          </linearGradient>
+          <linearGradient id="colorFailure" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#ef4444" stopOpacity={0.15} />
+            <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
         <XAxis
           dataKey="date"
-          tick={{ fill: '#4b5563', fontSize: 10, fontFamily: 'monospace' }}
+          tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 10, fontFamily: 'var(--font-geist-mono)' }}
           interval={6}
-          axisLine={{ stroke: '#1f2937' }}
+          axisLine={false}
           tickLine={false}
         />
         <YAxis
-          tick={{ fill: '#4b5563', fontSize: 10, fontFamily: 'monospace' }}
+          tick={{ fill: 'rgba(255,255,255,0.25)', fontSize: 10, fontFamily: 'var(--font-geist-mono)' }}
           axisLine={false}
           tickLine={false}
           allowDecimals={false}
         />
         <Tooltip
           contentStyle={{
-            backgroundColor: '#111827',
-            border: '1px solid #374151',
+            backgroundColor: '#10101e',
+            border: '1px solid rgba(255,255,255,0.08)',
             borderRadius: '8px',
-            color: '#f9fafb',
+            color: '#fff',
             fontSize: '12px',
-            fontFamily: 'monospace',
+            fontFamily: 'var(--font-geist-mono)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
           }}
-          labelStyle={{ color: '#9ca3af', marginBottom: 4 }}
+          labelStyle={{ color: 'rgba(255,255,255,0.5)', marginBottom: 4, fontSize: 11 }}
+          itemStyle={{ color: 'rgba(255,255,255,0.8)' }}
         />
         <Legend
-          wrapperStyle={{ color: '#6b7280', fontSize: '11px', fontFamily: 'monospace' }}
+          wrapperStyle={{
+            color: 'rgba(255,255,255,0.4)',
+            fontSize: '11px',
+            fontFamily: 'var(--font-geist-mono)',
+          }}
         />
-        <Line
+        <Area
           type="monotone"
           dataKey="success"
           stroke="#22c55e"
-          strokeWidth={2}
+          strokeWidth={1.5}
+          fill="url(#colorSuccess)"
           dot={false}
-          activeDot={{ r: 3, fill: '#22c55e' }}
+          activeDot={{ r: 3, fill: '#22c55e', strokeWidth: 0 }}
           name="Success"
         />
-        <Line
+        <Area
           type="monotone"
           dataKey="failure"
           stroke="#ef4444"
-          strokeWidth={2}
+          strokeWidth={1.5}
+          fill="url(#colorFailure)"
           dot={false}
-          activeDot={{ r: 3, fill: '#ef4444' }}
+          activeDot={{ r: 3, fill: '#ef4444', strokeWidth: 0 }}
           name="Failure"
         />
-      </LineChart>
+      </AreaChart>
     </ResponsiveContainer>
   );
 }

@@ -5,114 +5,130 @@ import type { RepoStats } from '@/lib/types';
 import { StatusPill } from './StatusPill';
 
 function formatRelative(dateStr: string): string {
-  const diffMs = Date.now() - new Date(dateStr).getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  return `${Math.floor(diffHours / 24)}d ago`;
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const m = Math.floor(diff / 60_000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
-function formatDuration(seconds: number): string {
-  if (seconds <= 0) return '—';
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+function formatDuration(s: number): string {
+  if (s <= 0) return '—';
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
-function SuccessRateBadge({ rate }: { rate: number }) {
-  const cls =
+function RateBadge({ rate }: { rate: number }) {
+  const [color, bg, ring] =
     rate > 80
-      ? 'bg-green-500/15 text-green-400 border-green-500/30'
+      ? ['text-green-400', 'bg-green-500/8', 'ring-green-500/20']
       : rate > 60
-        ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30'
-        : 'bg-red-500/15 text-red-400 border-red-500/30';
+        ? ['text-yellow-400', 'bg-yellow-500/8', 'ring-yellow-500/20']
+        : ['text-red-400', 'bg-red-500/8', 'ring-red-500/20'];
+
   return (
-    <span className={`inline-flex items-center rounded-full border font-mono text-xs px-2 py-0.5 ${cls}`}>
+    <span className={`inline-flex items-center rounded-full ring-1 font-mono text-xs px-2 py-0.5 tabular ${color} ${bg} ${ring}`}>
       {rate}%
     </span>
   );
 }
 
-function GitHubIcon() {
+function ExternalIcon() {
   return (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+    <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M6 2H2a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-4M9 1h6m0 0v6m0-6L7 9" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
 
 export function RepoCard({ stats }: { stats: RepoStats }) {
-  const { repo, lastRun, successRate, avgDuration, totalRuns, hasWorkflows, workflowsLoading } =
-    stats;
+  const { repo, lastRun, successRate, avgDuration, totalRuns, hasWorkflows, workflowsLoading } = stats;
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-colors group">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-3">
-        <div className="min-w-0 flex-1">
-          <Link
-            href={`/repo/${repo.owner.login}/${repo.name}`}
-            className="text-gray-100 font-semibold hover:text-white transition-colors truncate block"
+    <div className="group relative rounded-xl bg-bg-raised border border-white/5 hover:border-white/10 transition-all duration-200 hover:shadow-card-hover overflow-hidden">
+      {/* Subtle card shine */}
+      <div className="absolute inset-0 bg-card-shine pointer-events-none" />
+
+      <div className="relative p-5">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-4">
+          <div className="min-w-0 flex-1">
+            <Link
+              href={`/repo/${repo.owner.login}/${repo.name}`}
+              className="text-sm font-semibold text-white/90 hover:text-white transition-colors block truncate"
+            >
+              {repo.name}
+            </Link>
+            {repo.description && (
+              <p className="text-xs text-white/30 mt-0.5 truncate leading-relaxed" title={repo.description}>
+                {repo.description}
+              </p>
+            )}
+          </div>
+          <a
+            href={repo.html_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-3 mt-0.5 text-white/20 hover:text-white/50 transition-colors flex-shrink-0"
+            title="Open on GitHub"
           >
-            {repo.name}
-          </Link>
-          {repo.description && (
-            <p className="text-gray-600 text-xs mt-1 truncate" title={repo.description}>
-              {repo.description}
-            </p>
-          )}
+            <ExternalIcon />
+          </a>
         </div>
-        <a
-          href={repo.html_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-gray-700 hover:text-gray-400 transition-colors ml-3 flex-shrink-0 mt-0.5"
-          title="View on GitHub"
-        >
-          <GitHubIcon />
-        </a>
+
+        {/* Workflow state */}
+        {workflowsLoading ? (
+          <div className="space-y-3 animate-pulse">
+            <div className="flex gap-2">
+              <div className="h-5 w-14 rounded-full bg-white/6" />
+              <div className="h-5 w-18 rounded bg-white/4" />
+            </div>
+            <div className="h-3 w-40 rounded bg-white/4" />
+          </div>
+        ) : !hasWorkflows ? (
+          <p className="text-xs text-white/20 italic">No workflows configured</p>
+        ) : lastRun ? (
+          <div className="space-y-3">
+            {/* Status row */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <StatusPill status={lastRun.status} conclusion={lastRun.conclusion} />
+              <span className="text-xs font-mono text-white/30 truncate max-w-[110px]">
+                {lastRun.head_branch}
+              </span>
+              <span className="text-xs text-white/20">{formatRelative(lastRun.created_at)}</span>
+            </div>
+
+            {/* Stats row */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-white/30">Rate</span>
+                <RateBadge rate={successRate} />
+              </div>
+              <Divider />
+              <Stat label="Avg" value={formatDuration(avgDuration)} />
+              <Divider />
+              <Stat label="Runs" value={String(totalRuns)} />
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-white/20 italic">No runs yet</p>
+        )}
       </div>
+    </div>
+  );
+}
 
-      {/* Workflow State */}
-      {workflowsLoading ? (
-        <div className="space-y-2 animate-pulse">
-          <div className="flex gap-2">
-            <div className="h-5 w-16 bg-gray-800 rounded-full" />
-            <div className="h-5 w-20 bg-gray-800/60 rounded" />
-          </div>
-          <div className="h-3 w-48 bg-gray-800/40 rounded" />
-        </div>
-      ) : !hasWorkflows ? (
-        <p className="text-gray-700 text-xs italic">No workflows configured</p>
-      ) : lastRun ? (
-        <>
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <StatusPill status={lastRun.status} conclusion={lastRun.conclusion} />
-            <span className="text-gray-500 text-xs font-mono truncate max-w-[120px]">
-              {lastRun.head_branch}
-            </span>
-            <span className="text-gray-700 text-xs">{formatRelative(lastRun.created_at)}</span>
-          </div>
+function Divider() {
+  return <span className="w-px h-3 bg-white/8 flex-shrink-0" />;
+}
 
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-1.5">
-              <span className="text-gray-600 text-xs">Success</span>
-              <SuccessRateBadge rate={successRate} />
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-gray-600 text-xs">Avg</span>
-              <span className="text-gray-400 font-mono text-xs">{formatDuration(avgDuration)}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="text-gray-600 text-xs">Runs</span>
-              <span className="text-gray-400 font-mono text-xs">{totalRuns}</span>
-            </div>
-          </div>
-        </>
-      ) : (
-        <p className="text-gray-700 text-xs italic">No workflow runs yet</p>
-      )}
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-xs text-white/25">{label}</span>
+      <span className="text-xs font-mono text-white/50 tabular">{value}</span>
     </div>
   );
 }

@@ -7,72 +7,104 @@ interface HealthOverviewProps {
   repoStats: RepoStats[];
 }
 
-function StatCard({
+function MetricCard({
   label,
   value,
-  valueClass = 'text-white',
+  sub,
+  accent,
 }: {
   label: string;
-  value: string | number;
-  valueClass?: string;
+  value: string;
+  sub?: string;
+  accent?: 'green' | 'red' | 'yellow' | 'default';
 }) {
+  const valueColor =
+    accent === 'green'
+      ? 'text-green-400'
+      : accent === 'red'
+        ? 'text-red-400'
+        : accent === 'yellow'
+          ? 'text-yellow-400'
+          : 'text-white';
+
   return (
-    <div className="bg-gray-950 border border-gray-800/60 rounded-lg p-4">
-      <p className="text-gray-600 text-xs mb-2">{label}</p>
-      <p className={`text-2xl font-mono font-bold ${valueClass}`}>{value}</p>
+    <div className="relative rounded-xl bg-bg-raised border border-white/5 p-4 overflow-hidden group">
+      <div className="absolute inset-0 bg-card-shine pointer-events-none" />
+      <div className="relative">
+        <p className="text-xs text-white/35 mb-2 uppercase tracking-wider font-medium">{label}</p>
+        <p className={`text-3xl font-bold font-mono tabular leading-none ${valueColor}`}>
+          {value}
+        </p>
+        {sub && <p className="text-xs text-white/25 mt-1.5">{sub}</p>}
+      </div>
     </div>
   );
 }
 
 export function HealthOverview({ repoStats }: HealthOverviewProps) {
-  const reposWithWorkflows = repoStats.filter((s) => s.hasWorkflows && !s.workflowsLoading);
+  const ready = repoStats.filter((s) => s.hasWorkflows && !s.workflowsLoading);
   const totalRepos = repoStats.length;
-  const totalRuns = reposWithWorkflows.reduce((sum, s) => sum + s.totalRuns, 0);
+  const totalRuns = ready.reduce((s, r) => s + r.totalRuns, 0);
 
-  const overallSuccessRate =
-    reposWithWorkflows.length > 0
-      ? Math.round(
-          reposWithWorkflows.reduce((sum, s) => sum + s.successRate, 0) / reposWithWorkflows.length
-        )
-      : 0;
+  const overallRate =
+    ready.length > 0
+      ? Math.round(ready.reduce((s, r) => s + r.successRate, 0) / ready.length)
+      : null;
 
-  const highFailureRepos = reposWithWorkflows.filter((s) => 100 - s.successRate > 40);
+  const highFail = ready.filter((s) => 100 - s.successRate > 40);
 
-  const rateColor =
-    overallSuccessRate > 80
-      ? 'text-green-400'
-      : overallSuccessRate > 60
-        ? 'text-yellow-400'
-        : 'text-red-400';
+  const rateAccent =
+    overallRate === null
+      ? 'default'
+      : overallRate > 80
+        ? 'green'
+        : overallRate > 60
+          ? 'yellow'
+          : 'red';
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
-      <h2 className="text-gray-300 text-sm font-semibold mb-4">Health Overview</h2>
+    <div className="mb-8 space-y-4">
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wider">
+          Overview
+        </h2>
+        <div className="flex-1 h-px bg-white/5" />
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard label="Repos Monitored" value={totalRepos} />
-        <StatCard
-          label="Overall Success Rate"
-          value={reposWithWorkflows.length > 0 ? `${overallSuccessRate}%` : '—'}
-          valueClass={rateColor}
+        <MetricCard
+          label="Repos"
+          value={String(totalRepos)}
+          sub={`${ready.length} with workflows`}
         />
-        <StatCard label="Total Runs (30d)" value={totalRuns} />
-        <StatCard
-          label="High Failure Rate"
-          value={highFailureRepos.length}
-          valueClass={highFailureRepos.length > 0 ? 'text-red-400' : 'text-green-400'}
+        <MetricCard
+          label="Success Rate"
+          value={overallRate !== null ? `${overallRate}%` : '—'}
+          sub="across all repos"
+          accent={rateAccent}
+        />
+        <MetricCard
+          label="Total Runs"
+          value={totalRuns > 0 ? totalRuns.toLocaleString() : '—'}
+          sub="last 30 days"
+        />
+        <MetricCard
+          label="Failing Repos"
+          value={String(highFail.length)}
+          sub=">40% failure rate"
+          accent={highFail.length > 0 ? 'red' : 'green'}
         />
       </div>
 
-      {highFailureRepos.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-gray-800">
-          <p className="text-xs text-gray-600 mb-2">Repos with failure rate &gt;40%:</p>
-          <div className="flex flex-wrap gap-2">
-            {highFailureRepos.map((s) => (
+      {highFail.length > 0 && (
+        <div className="rounded-xl border border-red-500/15 bg-red-500/5 px-4 py-3 flex items-center gap-3 flex-wrap">
+          <span className="text-xs text-red-400/70 font-medium shrink-0">High failure rate:</span>
+          <div className="flex flex-wrap gap-1.5">
+            {highFail.map((s) => (
               <Link
                 key={s.repo.id}
                 href={`/repo/${s.repo.owner.login}/${s.repo.name}`}
-                className="text-xs font-mono text-red-400 bg-red-500/10 border border-red-500/20 rounded px-2 py-1 hover:bg-red-500/20 transition-colors"
+                className="text-xs font-mono text-red-400 bg-red-500/10 ring-1 ring-red-500/20 rounded-md px-2 py-0.5 hover:bg-red-500/20 transition-colors"
               >
                 {s.repo.name}
               </Link>
