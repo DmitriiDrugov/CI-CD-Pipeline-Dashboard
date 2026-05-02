@@ -64,5 +64,97 @@ npm start
 | `GET /api/repos?username=X` | Lists public repos for a GitHub user |
 | `GET /api/workflows?owner=X&repo=Y` | Returns workflow run stats (success rate, avg duration, last run) |
 | `GET /api/workflows?owner=X&repo=Y&detail=true` | Returns full stats including daily chart data and per-job durations |
+| `GET /api/workflow-stats?username=X` | Aggregated per-repo stats for all repos of a user (see Azure section below) |
 
 All GitHub API calls are proxied through these Next.js API routes — the GitHub token stays server-side.
+
+---
+
+## Azure Serverless Backend
+
+### Architecture decision
+
+The `/api/workflow-stats` route aggregates workflow data across **all** repos of a GitHub user in a single call. Running this fan-out (up to 100 repos × GitHub API requests) inside a Next.js serverless function is fine for small accounts but can approach Vercel's 10 s execution limit for larger ones. The Azure Function offloads that work to a dedicated, independently scalable compute unit with its own timeout budget (up to 10 min on Consumption plan).
+
+```
+Browser → Next.js /api/workflow-stats → (toggle) ──┬── GitHub API (local path)
+                                                    └── Azure Function → GitHub API
+```
+
+The toggle is a server-side env flag so switching backends requires no code or UI changes.
+
+### Project structure
+
+```
+azure-functions/
+  host.json                        # Azure Functions v4 host config
+  package.json                     # deps: @azure/functions, applicationinsights
+  tsconfig.json
+  local.settings.json.example      # copy → local.settings.json for local dev
+  src/
+    functions/
+      getWorkflowStats.ts          # HTTP trigger: GET /api/getWorkflowStats?username=X
+    utils/
+      githubClient.ts              # typed GitHub REST API client
+      aggregator.ts                # pure aggregation logic (testable in isolation)
+```
+
+### Local development
+
+**Prerequisites:** [Azure Functions Core Tools v4](https://learn.microsoft.com/azure/azure-functions/functions-run-local) and Node.js 20.
+
+```bash
+cd azure-functions
+cp local.settings.json.example local.settings.json
+# Edit local.settings.json and fill in GITHUB_TOKEN (and optionally APPLICATIONINSIGHTS_CONNECTION_STRING)
+
+npm install
+npm run dev          # compiles TypeScript then runs: func start
+```
+
+The function listens on `http://localhost:7071/api/getWorkflowStats?username=<github_username>`.
+
+To test the Next.js integration locally, add these to `.env.local`:
+
+```bash
+USE_AZURE_BACKEND=true
+AZURE_FUNCTION_URL=http://localhost:7071
+```
+
+### Deploying to Azure
+
+1. Create a Function App in the Azure Portal (Node.js 20, Consumption plan).
+2. Set the application settings `GITHUB_TOKEN` and `APPLICATIONINSIGHTS_CONNECTION_STRING`.
+3. From the `azure-functions/` directory:
+
+```bash
+npm run build
+AZURE_FUNCTION_APP_NAME=your-function-app-name npm run deploy
+```
+
+4. Copy the Function App URL (e.g. `https://your-function-app-name.azurewebsites.net`) and update your Vercel project's env vars:
+
+```
+USE_AZURE_BACKEND=true
+AZURE_FUNCTION_URL=https://your-function-app-name.azurewebsites.net
+```
+
+### Switching backends
+
+| `USE_AZURE_BACKEND` | `AZURE_FUNCTION_URL` | Behaviour |
+|---|---|---|
+| `false` (default) | — | Next.js computes aggregation locally via GitHub API |
+| `true` | set | Next.js proxies `/api/workflow-stats` to the Azure Function |
+| `true` | unset | Returns HTTP 500 with a descriptive error |
+
+### Observability (Application Insights)
+
+When `APPLICATIONINSIGHTS_CONNECTION_STRING` is set, the Azure Function emits:
+
+| Telemetry | Trigger |
+|---|---|
+| `trackRequest` — name `GET getWorkflowStats` | Every invocation (success **and** failure), includes `username`, `repoCount`, response time |
+| `trackEvent` — name `GitHubRateLimitHit` | Whenever GitHub returns 429 or 403 with `X-RateLimit-Remaining: 0`, includes `username`, `endpoint`, and `repo` |
+| `trackException` | Any unhandled error |
+
+The connection string is read from the `APPLICATIONINSIGHTS_CONNECTION_STRING` environment variable, which Azure Functions also uses for its own built-in integration — no duplicate SDKs required.
