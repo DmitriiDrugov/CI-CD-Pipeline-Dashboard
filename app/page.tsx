@@ -1,14 +1,61 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { GitHubRepo, RepoStats, FilterMode, WorkflowsResponse } from '@/lib/types';
+import type {
+  RepoStats,
+  FilterMode,
+  WorkflowStatsAggregated,
+  RepoWorkflowStat,
+  WorkflowRun,
+  RunStatus,
+  RunConclusion,
+} from '@/lib/types';
 import { RepoCard } from '@/components/RepoCard';
 import { RepoCardSkeleton } from '@/components/RepoCardSkeleton';
 import { HealthOverview } from '@/components/HealthOverview';
 import { FilterBar } from '@/components/FilterBar';
 
 const REFRESH_MS = 30_000;
-const BATCH = 5;
+
+function toRepoStats(stat: RepoWorkflowStat): RepoStats {
+  const lastRun: WorkflowRun | null = stat.lastRun
+    ? {
+        id: 0,
+        run_number: 0,
+        name: '',
+        head_branch: stat.lastRun.head_branch,
+        head_sha: '',
+        head_commit: { message: '' },
+        status: stat.lastRun.status as RunStatus,
+        conclusion: stat.lastRun.conclusion as RunConclusion,
+        created_at: stat.lastRun.created_at,
+        updated_at: stat.lastRun.created_at,
+        run_started_at: stat.lastRun.created_at,
+        html_url: stat.html_url,
+        durationSeconds: 0,
+      }
+    : null;
+
+  return {
+    repo: {
+      id: stat.id,
+      name: stat.name,
+      full_name: stat.repo,
+      description: stat.description,
+      html_url: stat.html_url,
+      owner: { login: stat.owner, avatar_url: stat.avatar_url },
+      updated_at: stat.updated_at,
+      language: stat.language,
+      stargazers_count: stat.stargazers_count,
+    },
+    lastRun,
+    successRate: stat.successRate,
+    avgDuration: stat.avgDuration,
+    totalRuns: stat.totalRuns,
+    hasWorkflows: stat.hasWorkflows,
+    workflowsLoading: false,
+  };
+}
 
 function SearchIcon() {
   return (
@@ -27,6 +74,7 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterMode>('all');
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [backend, setBackend] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const fetchAll = useCallback(async (username: string) => {
@@ -39,77 +87,26 @@ export default function HomePage() {
     setError(null);
 
     try {
-      const res = await fetch(`/api/repos?username=${encodeURIComponent(username)}`, { signal });
+      const res = await fetch(
+        `/api/workflow-stats?username=${encodeURIComponent(username)}`,
+        { signal }
+      );
+      setBackend(res.headers.get('X-Backend'));
+
       if (!res.ok) {
         const b = (await res.json()) as { error?: string };
         throw new Error(b.error ?? `Error ${res.status}`);
       }
-      const repos = (await res.json()) as GitHubRepo[];
+
+      const body = (await res.json()) as WorkflowStatsAggregated;
       if (signal.aborted) return;
 
-      if (repos.length === 0) {
-        setRepoStats([]);
-        setFetchingRepos(false);
-        setLastRefresh(new Date());
-        return;
-      }
-
-      const seed: RepoStats[] = repos.map((repo) => ({
-        repo,
-        lastRun: null,
-        successRate: 0,
-        avgDuration: 0,
-        totalRuns: 0,
-        hasWorkflows: false,
-        workflowsLoading: true,
-      }));
-      setRepoStats(seed);
-      setFetchingRepos(false);
-
-      const results = [...seed];
-
-      for (let i = 0; i < repos.length; i += BATCH) {
-        if (signal.aborted) break;
-        const batch = repos.slice(i, i + BATCH);
-
-        const settled = await Promise.allSettled(
-          batch.map(async (repo) => {
-            const r = await fetch(
-              `/api/workflows?owner=${encodeURIComponent(repo.owner.login)}&repo=${encodeURIComponent(repo.name)}`,
-              { signal }
-            );
-            if (!r.ok) return null;
-            return { repo, wf: (await r.json()) as WorkflowsResponse };
-          })
-        );
-
-        if (signal.aborted) break;
-
-        settled.forEach((result, j) => {
-          const idx = i + j;
-          if (result.status === 'fulfilled' && result.value) {
-            const { repo, wf } = result.value;
-            results[idx] = {
-              repo,
-              lastRun: wf.lastRun,
-              successRate: wf.successRate,
-              avgDuration: wf.avgDuration,
-              totalRuns: wf.totalRuns,
-              hasWorkflows: wf.hasWorkflows,
-              workflowsLoading: false,
-            };
-          } else if (results[idx]) {
-            results[idx] = { ...results[idx]!, workflowsLoading: false };
-          }
-        });
-
-        setRepoStats([...results]);
-      }
-
+      setRepoStats(body.repos.map(toRepoStats));
       setLastRefresh(new Date());
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
       setError((err as Error).message);
+    } finally {
       setFetchingRepos(false);
     }
   }, []);
@@ -201,6 +198,7 @@ export default function HomePage() {
             {lastRefresh && (
               <span className="text-xs text-white/20 font-mono flex-shrink-0">
                 ↻ {lastRefresh.toLocaleTimeString()} · 30s refresh
+                {backend && <span className="ml-2 text-white/30">· {backend}</span>}
               </span>
             )}
           </div>

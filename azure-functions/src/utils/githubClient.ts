@@ -56,7 +56,12 @@ export interface RawRepo {
   id: number;
   name: string;
   full_name: string;
-  owner: { login: string };
+  description: string | null;
+  html_url: string;
+  language: string | null;
+  stargazers_count: number;
+  updated_at: string;
+  owner: { login: string; avatar_url: string };
 }
 
 export interface RawWorkflowRun {
@@ -64,6 +69,7 @@ export interface RawWorkflowRun {
   name: string;
   status: string;
   conclusion: string | null;
+  head_branch: string;
   created_at: string;
   run_started_at: string;
   updated_at: string;

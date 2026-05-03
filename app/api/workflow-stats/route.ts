@@ -1,47 +1,49 @@
 /**
  * GET /api/workflow-stats?username=<github_username>
  *
- * Returns per-repo workflow aggregations (success rate, avg duration, most-failing job)
- * for all public repositories belonging to the given GitHub user.
+ * Returns per-repo workflow aggregations for all public repositories of the user.
  *
- * Backend selection is controlled by the USE_AZURE_BACKEND environment variable:
- *   USE_AZURE_BACKEND=true  → proxies the request to the Azure Function at AZURE_FUNCTION_URL
- *   USE_AZURE_BACKEND=false → computes the result locally using the GitHub API directly
+ * Backend selection:
+ *   USE_AZURE_BACKEND=true  → proxies to AZURE_FUNCTION_URL
+ *   USE_AZURE_BACKEND=false → computes locally via the GitHub API
  *
- * The GitHub token (GITHUB_TOKEN) is never forwarded to the client.
+ * Adds an `X-Backend` header so the client can tell which path served the request.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchGitHubAPI } from '@/lib/github';
-import type { RepoWorkflowStat, WorkflowStatsAggregated } from '@/lib/types';
-
-// ---------------------------------------------------------------------------
-// Types matching the GitHub REST API responses we consume locally
-// ---------------------------------------------------------------------------
+import type {
+  AggregatedLastRun,
+  RepoWorkflowStat,
+  WorkflowStatsAggregated,
+} from '@/lib/types';
 
 interface RawRepo {
   id: number;
   name: string;
   full_name: string;
-  owner: { login: string };
+  description: string | null;
+  html_url: string;
+  language: string | null;
+  stargazers_count: number;
+  updated_at: string;
+  owner: { login: string; avatar_url: string };
 }
 
 interface RawRun {
   id: number;
   status: string;
   conclusion: string | null;
+  head_branch: string;
   run_started_at: string;
   updated_at: string;
+  created_at: string;
 }
 
 interface RawJob {
   name: string;
   conclusion: string | null;
 }
-
-// ---------------------------------------------------------------------------
-// Local aggregation helpers (mirrors azure-functions/src/utils/aggregator.ts)
-// ---------------------------------------------------------------------------
 
 function calcDuration(startedAt: string, completedAt: string): number {
   const start = new Date(startedAt).getTime();
@@ -50,23 +52,39 @@ function calcDuration(startedAt: string, completedAt: string): number {
   return Math.max(0, Math.round((end - start) / 1000));
 }
 
-async function aggregateRepo(owner: string, repoName: string): Promise<RepoWorkflowStat> {
+function repoMeta(repo: RawRepo) {
+  return {
+    id: repo.id,
+    repo: repo.full_name,
+    owner: repo.owner.login,
+    name: repo.name,
+    description: repo.description,
+    html_url: repo.html_url,
+    language: repo.language,
+    stargazers_count: repo.stargazers_count,
+    updated_at: repo.updated_at,
+    avatar_url: repo.owner.avatar_url,
+  };
+}
+
+async function aggregateRepo(repo: RawRepo): Promise<RepoWorkflowStat> {
+  const meta = repoMeta(repo);
+
   const runsResult = await fetchGitHubAPI<{ workflow_runs: RawRun[] }>(
-    `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}/actions/runs?per_page=30`
+    `/repos/${encodeURIComponent(repo.owner.login)}/${encodeURIComponent(repo.name)}/actions/runs?per_page=30`
   );
 
   const runs = runsResult.data?.workflow_runs ?? [];
 
   if (runs.length === 0) {
     return {
-      repo: `${owner}/${repoName}`,
-      owner,
-      name: repoName,
+      ...meta,
       successRate: 0,
       avgDuration: 0,
       mostFailingJob: null,
       totalRuns: 0,
       hasWorkflows: false,
+      lastRun: null,
     };
   }
 
@@ -83,12 +101,11 @@ async function aggregateRepo(owner: string, repoName: string): Promise<RepoWorkf
       ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
       : 0;
 
-  // Fetch jobs for the 5 most recent runs to identify the most-failing job.
   const jobFailureCounts = new Map<string, number>();
   await Promise.allSettled(
     runs.slice(0, 5).map(async (run) => {
       const jobsResult = await fetchGitHubAPI<{ jobs: RawJob[] }>(
-        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repoName)}/actions/runs/${run.id}/jobs`
+        `/repos/${encodeURIComponent(repo.owner.login)}/${encodeURIComponent(repo.name)}/actions/runs/${run.id}/jobs`
       );
       for (const job of jobsResult.data?.jobs ?? []) {
         if (job.conclusion === 'failure') {
@@ -108,20 +125,15 @@ async function aggregateRepo(owner: string, repoName: string): Promise<RepoWorkf
   });
 
   return {
-    repo: `${owner}/${repoName}`,
-    owner,
-    name: repoName,
+    ...meta,
     successRate,
     avgDuration,
     mostFailingJob,
     totalRuns: runs.length,
     hasWorkflows: true,
+    lastRun,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Backend implementations
-// ---------------------------------------------------------------------------
 
 async function handleLocal(username: string): Promise<NextResponse> {
   const reposResult = await fetchGitHubAPI<RawRepo[]>(
@@ -129,17 +141,19 @@ async function handleLocal(username: string): Promise<NextResponse> {
   );
 
   if (reposResult.error) {
-    return NextResponse.json({ error: reposResult.error }, { status: reposResult.status || 500 });
+    return NextResponse.json(
+      { error: reposResult.error },
+      { status: reposResult.status || 500, headers: { 'X-Backend': 'local' } }
+    );
   }
 
   const repos = reposResult.data ?? [];
   const repoStats: RepoWorkflowStat[] = [];
 
-  // Process in batches of 5 to avoid saturating the GitHub API.
   const BATCH = 5;
   for (let i = 0; i < repos.length; i += BATCH) {
     const settled = await Promise.allSettled(
-      repos.slice(i, i + BATCH).map((r) => aggregateRepo(r.owner.login, r.name))
+      repos.slice(i, i + BATCH).map((r) => aggregateRepo(r))
     );
     for (const result of settled) {
       if (result.status === 'fulfilled') repoStats.push(result.value);
@@ -151,7 +165,7 @@ async function handleLocal(username: string): Promise<NextResponse> {
     repos: repoStats,
     generatedAt: new Date().toISOString(),
   };
-  return NextResponse.json(body);
+  return NextResponse.json(body, { headers: { 'X-Backend': 'local' } });
 }
 
 async function handleAzure(username: string): Promise<NextResponse> {
@@ -159,7 +173,7 @@ async function handleAzure(username: string): Promise<NextResponse> {
   if (!azureUrl) {
     return NextResponse.json(
       { error: 'AZURE_FUNCTION_URL is not set — cannot proxy to Azure backend' },
-      { status: 500 }
+      { status: 500, headers: { 'X-Backend': 'azure-misconfigured' } }
     );
   }
 
@@ -171,17 +185,16 @@ async function handleAzure(username: string): Promise<NextResponse> {
   } catch {
     return NextResponse.json(
       { error: 'Failed to reach Azure Function — check AZURE_FUNCTION_URL' },
-      { status: 502 }
+      { status: 502, headers: { 'X-Backend': 'azure-unreachable' } }
     );
   }
 
   const data: unknown = await upstream.json();
-  return NextResponse.json(data, { status: upstream.status });
+  return NextResponse.json(data, {
+    status: upstream.status,
+    headers: { 'X-Backend': 'azure' },
+  });
 }
-
-// ---------------------------------------------------------------------------
-// Route handler
-// ---------------------------------------------------------------------------
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
