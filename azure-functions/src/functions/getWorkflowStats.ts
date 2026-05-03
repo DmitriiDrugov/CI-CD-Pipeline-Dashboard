@@ -20,7 +20,7 @@ function getAiClient(): appInsights.TelemetryClient | null {
       // Azure Functions v4 already instruments HTTP — disable auto-collection to avoid
       // double-counting; we emit one trackRequest per invocation manually.
       .setAutoCollectRequests(false)
-      .setAutoCollectPerformance(false)
+      .setAutoCollectPerformance(false, false)
       .setAutoCollectExceptions(true)
       .setAutoCollectDependencies(true)
       .start();
@@ -97,7 +97,7 @@ async function handler(
             })
           );
 
-          return aggregateRunsForRepo(repo.owner.login, repo.name, runs, jobsByRunId);
+          return aggregateRunsForRepo(repo, runs, jobsByRunId);
         })
       );
 

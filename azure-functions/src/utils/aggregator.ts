@@ -1,14 +1,29 @@
-import type { RawWorkflowRun, RawJob } from './githubClient';
+import type { RawRepo, RawWorkflowRun, RawJob } from './githubClient';
+
+export interface LastRunSummary {
+  status: string;
+  conclusion: string | null;
+  head_branch: string;
+  created_at: string;
+}
 
 export interface RepoWorkflowStat {
+  id: number;
   repo: string;
   owner: string;
   name: string;
+  description: string | null;
+  html_url: string;
+  language: string | null;
+  stargazers_count: number;
+  updated_at: string;
+  avatar_url: string;
   successRate: number;
   avgDuration: number;
   mostFailingJob: string | null;
   totalRuns: number;
   hasWorkflows: boolean;
+  lastRun: LastRunSummary | null;
 }
 
 export interface WorkflowStatsResponse {
@@ -24,22 +39,37 @@ function calcDuration(startedAt: string, completedAt: string): number {
   return Math.max(0, Math.round((end - start) / 1000));
 }
 
+function repoMeta(repo: RawRepo) {
+  return {
+    id: repo.id,
+    repo: repo.full_name,
+    owner: repo.owner.login,
+    name: repo.name,
+    description: repo.description,
+    html_url: repo.html_url,
+    language: repo.language,
+    stargazers_count: repo.stargazers_count,
+    updated_at: repo.updated_at,
+    avatar_url: repo.owner.avatar_url,
+  };
+}
+
 export function aggregateRunsForRepo(
-  owner: string,
-  repoName: string,
+  repo: RawRepo,
   runs: RawWorkflowRun[],
   jobsByRunId: Map<number, RawJob[]>
 ): RepoWorkflowStat {
+  const meta = repoMeta(repo);
+
   if (runs.length === 0) {
     return {
-      repo: `${owner}/${repoName}`,
-      owner,
-      name: repoName,
+      ...meta,
       successRate: 0,
       avgDuration: 0,
       mostFailingJob: null,
       totalRuns: 0,
       hasWorkflows: false,
+      lastRun: null,
     };
   }
 
@@ -58,7 +88,6 @@ export function aggregateRunsForRepo(
       ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
       : 0;
 
-  // Count failures per job name across all fetched run jobs
   const jobFailureCounts = new Map<string, number>();
   for (const jobs of jobsByRunId.values()) {
     for (const job of jobs) {
@@ -77,14 +106,21 @@ export function aggregateRunsForRepo(
     }
   }
 
+  const latest = runs[0]!;
+  const lastRun: LastRunSummary = {
+    status: latest.status,
+    conclusion: latest.conclusion,
+    head_branch: latest.head_branch,
+    created_at: latest.created_at,
+  };
+
   return {
-    repo: `${owner}/${repoName}`,
-    owner,
-    name: repoName,
+    ...meta,
     successRate,
     avgDuration,
     mostFailingJob,
     totalRuns: runs.length,
     hasWorkflows: true,
+    lastRun,
   };
 }

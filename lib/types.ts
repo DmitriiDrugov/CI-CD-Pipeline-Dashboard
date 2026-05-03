@@ -81,15 +81,30 @@ export interface WorkflowsResponse {
 export type FilterMode = 'all' | 'passing' | 'failing';
 
 // Aggregated per-repo stats returned by the Azure Function (and the local fallback route).
+export interface AggregatedLastRun {
+  status: RunStatus | string;
+  conclusion: RunConclusion;
+  head_branch: string;
+  created_at: string;
+}
+
 export interface RepoWorkflowStat {
+  id: number;
   repo: string;
   owner: string;
   name: string;
+  description: string | null;
+  html_url: string;
+  language: string | null;
+  stargazers_count: number;
+  updated_at: string;
+  avatar_url: string;
   successRate: number;
   avgDuration: number;
   mostFailingJob: string | null;
   totalRuns: number;
   hasWorkflows: boolean;
+  lastRun: AggregatedLastRun | null;
 }
 
 export interface WorkflowStatsAggregated {
