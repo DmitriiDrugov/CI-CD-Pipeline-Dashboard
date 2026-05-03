@@ -124,6 +124,14 @@ async function aggregateRepo(repo: RawRepo): Promise<RepoWorkflowStat> {
     }
   });
 
+  const latest = runs[0]!;
+  const lastRun: AggregatedLastRun = {
+    status: latest.status,
+    conclusion: latest.conclusion as AggregatedLastRun['conclusion'],
+    head_branch: latest.head_branch,
+    created_at: latest.created_at,
+  };
+
   return {
     ...meta,
     successRate,
