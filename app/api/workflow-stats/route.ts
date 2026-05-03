@@ -100,12 +100,12 @@ async function aggregateRepo(owner: string, repoName: string): Promise<RepoWorkf
 
   let mostFailingJob: string | null = null;
   let maxFailures = 0;
-  for (const [name, count] of jobFailureCounts) {
+  jobFailureCounts.forEach((count, name) => {
     if (count > maxFailures) {
       maxFailures = count;
       mostFailingJob = name;
     }
-  }
+  });
 
   return {
     repo: `${owner}/${repoName}`,
